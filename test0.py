@@ -82,8 +82,8 @@ def load_map_from_image(filepath):
 
 def random_position(grid):
     while True:
-        x = random.randint(0, GRID_WIDTH - 1)
-        y = random.randint(0, GRID_HEIGHT - 1)
+        x = random.randint(0, GRID_WIDTH )
+        y = random.randint(0, GRID_HEIGHT)
         if grid[y][x] == 0:
             return x, y
 
