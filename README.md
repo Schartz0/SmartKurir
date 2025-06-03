@@ -12,5 +12,5 @@
 # Anggota Kelompok:
 1. Muhammad Arroyyan Hamel (2301020117)
 2. Rivandi Ismanto P (2301020101)
-3. Rizki Wardani
+3. Rizki Wardani (kerja ndak benar #kasianyudha)
 4. Yudha Rifal Kelana (2301020122)
