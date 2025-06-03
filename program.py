@@ -153,7 +153,7 @@ class App:
         gx, gy = self.goal
         cx = offset_x + gx*TILE_SIZE + TILE_SIZE//2
         cy = offset_y + gy*TILE_SIZE + TILE_SIZE//2
-        self.canvas.create_line(cx, cy - 10, cx, cy + 10, fill=BLACK, width=3)
+        self.canvas.create_line(cx, cy - 10, cx, cy + 5, fill=BLACK, width=3)
         self.canvas.create_polygon([(cx, cy), (cx, cy - 10), (cx + 10, cy)], fill=RED, outline=BLACK)
 
         # Courier
