@@ -3,6 +3,7 @@
 
 ## Teknologi yang digunakan
 - Python
+- Paint
 
 ## Mata Kuliah: Perancangan dan Analisis Algoritma
 
