@@ -16,6 +16,7 @@ BLACK = "#000000"
 YELLOW = "#FFFF00"
 RED = "#FF0000"
 GREEN = "#00FF00"
+BLUE = "#0000FF"
 
 def clamp(value, min_value, max_value):
     return max(min_value, min(max_value, value))
@@ -132,6 +133,8 @@ class Courier:
         self.target_index = 0
         self.speed = 0.15  # Reduced speed for more precise movement
         self.current_pos = (float(x), float(y))  # Float position for smooth animation
+        self.has_pickup = False  # Status apakah sudah mengambil pickup
+        self.current_target = None  # Target saat ini (pickup atau goal)
         
     def move(self):
         if self.path and self.target_index < len(self.path):
@@ -160,7 +163,7 @@ class Courier:
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("Smart Courier Tkinter - Separate Random Positioning")
+        self.root.title("Smart Courier Tkinter - Pickup & Delivery System")
         self.map_width_px = WINDOW_WIDTH
         self.map_height_px = WINDOW_HEIGHT
         self.grid_width = 0  # Will be set when loading map
@@ -176,16 +179,16 @@ class App:
         self.controls_frame.pack(side='bottom', fill='x')
 
         # Separate random position buttons
-        self.random_courier_btn = tk.Button(self.controls_frame, text="Random Courier", command=self.random_courier_position, state=tk.DISABLED)
+        self.random_courier_btn = tk.Button(self.controls_frame, text="Acak Kurir", command=self.random_courier_position, state=tk.DISABLED)
         self.random_courier_btn.pack(side=tk.LEFT, padx=5, pady=5)
 
-        self.random_goal_btn = tk.Button(self.controls_frame, text="Random Goal", command=self.random_goal_position, state=tk.DISABLED)
-        self.random_goal_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        self.random_destinations_btn = tk.Button(self.controls_frame, text="Acak Tujuan", command=self.random_destinations, state=tk.DISABLED)
+        self.random_destinations_btn.pack(side=tk.LEFT, padx=5, pady=5)
 
         self.play_btn = tk.Button(self.controls_frame, text="Play", command=self.play, state=tk.DISABLED)
         self.play_btn.pack(side=tk.LEFT, padx=5, pady=5)
 
-        self.reset_btn = tk.Button(self.controls_frame, text="Reset Position", command=self.reset_position, state=tk.DISABLED)
+        self.reset_btn = tk.Button(self.controls_frame, text="Reset Posisi", command=self.reset_position, state=tk.DISABLED)
         self.reset_btn.pack(side=tk.LEFT, padx=5, pady=5)
 
         self.load_btn = tk.Button(self.controls_frame, text="Load Map", command=self.load_map)
@@ -198,7 +201,8 @@ class App:
 
         self.grid = []
         self.start = (0, 0)
-        self.goal = (0, 0)
+        self.pickup = (0, 0)  # Bendera kuning - pickup point
+        self.goal = (0, 0)    # Bendera merah - delivery point
         self.courier = Courier(0, 0)
         self.map_image = None
         self.map_photo = None
@@ -265,7 +269,7 @@ class App:
                             fill=GRAY, outline=GRAY
                         )
 
-        # Draw start, goal, and courier
+        # Draw start, pickup, goal, and courier
         canvas_w = self.canvas.winfo_width()
         canvas_h = self.canvas.winfo_height()
         
@@ -281,21 +285,24 @@ class App:
             offset_y = max((canvas_h - map_h) // 2, 0)
             scale_x = scale_y = 1
 
-        # Start (Courier starting position)
-        sx, sy = self.start
-        cx = offset_x + sx*TILE_SIZE*scale_x + TILE_SIZE*scale_x//2
-        cy = offset_y + sy*TILE_SIZE*scale_y + TILE_SIZE*scale_y//2
+
+
+        # Pickup point - Yellow flag
+        px, py = self.pickup
+        cx = offset_x + px*TILE_SIZE*scale_x + TILE_SIZE*scale_x//2
+        cy = offset_y + py*TILE_SIZE*scale_y + TILE_SIZE*scale_y//2
         self.canvas.create_line(cx, cy - 10*scale_y, cx, cy + 10*scale_y, fill=BLACK, width=3)
         self.canvas.create_polygon([(cx, cy), (cx, cy - 10*scale_y), (cx + 10*scale_x, cy)], fill=YELLOW, outline=BLACK)
 
-        # Goal
+        # Goal - Red flag
         gx, gy = self.goal
         cx = offset_x + gx*TILE_SIZE*scale_x + TILE_SIZE*scale_x//2
         cy = offset_y + gy*TILE_SIZE*scale_y + TILE_SIZE*scale_y//2
         self.canvas.create_line(cx, cy - 10*scale_y, cx, cy + 10*scale_y, fill=BLACK, width=3)
         self.canvas.create_polygon([(cx, cy), (cx, cy - 10*scale_y), (cx + 10*scale_x, cy)], fill=RED, outline=BLACK)
 
-        # Courier
+        # Courier - Green triangle, changes color if has pickup
+        courier_color = GREEN if not self.courier.has_pickup else "#FFD700"  # Gold color when has pickup
         cx = offset_x + self.courier.current_pos[0]*TILE_SIZE*scale_x + TILE_SIZE*scale_x//2
         cy = offset_y + self.courier.current_pos[1]*TILE_SIZE*scale_y + TILE_SIZE*scale_y//2
         length = TILE_SIZE * max(scale_x, scale_y) // 2
@@ -305,7 +312,7 @@ class App:
             (cx + length * math.cos(angle + 2.3), cy - length * math.sin(angle + 2.3)),
             (cx + length * math.cos(angle - 2.3), cy - length * math.sin(angle - 2.3)),
         ]
-        self.canvas.create_polygon(points, fill=GREEN, outline=BLACK)
+        self.canvas.create_polygon(points, fill=courier_color, outline=BLACK)
 
         # Draw path if it exists
         if self.courier.path:
@@ -317,11 +324,13 @@ class App:
                 path_points.append((cx, cy))
             
             if len(path_points) > 1:
-                self.canvas.create_line(path_points, fill=GREEN, width=2, dash=(4, 2))
+                path_color = GREEN if not self.courier.has_pickup else "#FFD700"
+                self.canvas.create_line(path_points, fill=path_color, width=2, dash=(4, 2))
 
         # Legend
         if self.grid:  # Only show legend if map is loaded
-            legend_text = f"Map size: {self.grid_width * TILE_SIZE} px x {self.grid_height * TILE_SIZE} px | 8-direction pathfinding (Fixed)"
+            status = "Mencari Pickup" if not self.courier.has_pickup else "Mengirim ke Tujuan"
+            legend_text = f"Map size: {self.grid_width * TILE_SIZE} px x {self.grid_height * TILE_SIZE} px | Status: {status}"
             padding = 4
             font = ("Arial", 10, "bold")
             text_id = self.canvas.create_text(padding, padding, anchor="nw", text=legend_text, font=font)
@@ -337,8 +346,31 @@ class App:
 
     def update(self):
         self.draw_grid()
+        
         if self.courier.moving:
             self.courier.move()
+            
+            # Check if courier reached pickup point
+            courier_pos = (int(round(self.courier.current_pos[0])), int(round(self.courier.current_pos[1])))
+            
+            # If courier reached pickup and doesn't have pickup yet
+            if not self.courier.has_pickup and courier_pos == self.pickup and not self.courier.moving:
+                self.courier.has_pickup = True
+                messagebox.showinfo("Info", "Pickup berhasil! Sekarang menuju ke tujuan.")
+                # Calculate path to goal
+                self.courier.path = a_star(self.grid, courier_pos, self.goal)
+                if self.courier.path:
+                    self.courier.moving = True
+                    self.courier.target_index = 0
+                    self.courier.current_target = "goal"
+                else:
+                    messagebox.showerror("Error", "Tidak ada jalur dari pickup ke tujuan!")
+            
+            # If courier reached goal with pickup
+            elif self.courier.has_pickup and courier_pos == self.goal and not self.courier.moving:
+                messagebox.showinfo("Success", "Delivery berhasil diselesaikan!")
+                self.courier.moving = False
+            
             self.root.after(16, self.update)  # 60 FPS for smoother animation
 
     def random_courier_position(self):
@@ -349,27 +381,42 @@ class App:
         new_position = random_position(self.grid)
         self.start = new_position
         self.courier = Courier(*new_position)
+        self.courier.has_pickup = False
         self.update()
 
-    def random_goal_position(self):
-        """Set random position for goal only"""
+    def random_destinations(self):
+        """Set random positions for both pickup (yellow) and goal (red) flags"""
         if not self.grid:
             return
             
-        self.goal = random_position(self.grid)
+        # Generate two different random positions
+        self.pickup = random_position(self.grid)
+        
+        # Make sure goal is different from pickup
+        while True:
+            self.goal = random_position(self.grid)
+            if self.goal != self.pickup:
+                break
+                
         self.update()
 
     def play(self):
         if not self.grid:
             return
-            
-        self.courier.path = a_star(self.grid, (int(self.courier.current_pos[0]), int(self.courier.current_pos[1])), self.goal)
+        
+        # Reset courier pickup status
+        self.courier.has_pickup = False
+        current_pos = (int(self.courier.current_pos[0]), int(self.courier.current_pos[1]))
+        
+        # First, find path to pickup point
+        self.courier.path = a_star(self.grid, current_pos, self.pickup)
         if self.courier.path:
             self.courier.moving = True
             self.courier.target_index = 0
+            self.courier.current_target = "pickup"
             self.update()
         else:
-            messagebox.showinfo("Info", "No path found from current position to goal.")
+            messagebox.showinfo("Info", "Tidak ada jalur dari posisi saat ini ke pickup point.")
 
     def reset_position(self):
         if not self.grid:
@@ -377,6 +424,7 @@ class App:
             
         self.courier = Courier(*self.start)
         self.courier.moving = False
+        self.courier.has_pickup = False
         self.update()
 
     def load_map(self):
@@ -413,7 +461,7 @@ class App:
                                     total_pixels += 1
                                     
                                     # Check if in gray range (90-150) - walkable
-                                    if 90 <= r <= 150 and 90 <= g <= 150 and 90 <= b <= 150:
+                                    if 90 <= r <= g <= 150 and 90 <= g <= 150 and 90 <= b <= 150:
                                         walkable_pixels += 1
                         
                         # If more than 50% of pixels in tile are walkable, consider tile walkable
@@ -426,12 +474,19 @@ class App:
                 
                 self.grid = grid
                 self.start = random_position(self.grid)
-                self.goal = random_position(self.grid)
+                
+                # Generate different positions for pickup and goal
+                self.pickup = random_position(self.grid)
+                while True:
+                    self.goal = random_position(self.grid)
+                    if self.goal != self.pickup:
+                        break
+                
                 self.courier = Courier(*self.start)
                 
                 # Enable all buttons
                 self.random_courier_btn.config(state=tk.NORMAL)
-                self.random_goal_btn.config(state=tk.NORMAL)
+                self.random_destinations_btn.config(state=tk.NORMAL)
                 self.play_btn.config(state=tk.NORMAL)
                 self.reset_btn.config(state=tk.NORMAL)
                 self.speed_scale.config(state=tk.NORMAL)
