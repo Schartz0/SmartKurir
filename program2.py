@@ -8,7 +8,7 @@ from PIL import Image, ImageTk
 WINDOW_WIDTH = 1100
 WINDOW_HEIGHT = 700
 
-TILE_SIZE = 10  # Fixed size
+TILE_SIZE = 10  # Base tile size
 
 GRAY = "#666666"
 WHITE = "#FFFFFF"
@@ -127,12 +127,8 @@ class Courier:
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("Smart Courier Tkinter - 16 Direction Pathfinding")
-        self.map_width_px = WINDOW_WIDTH
-        self.map_height_px = WINDOW_HEIGHT
-        self.grid_width = 0  # Will be set when loading map
-        self.grid_height = 0  # Will be set when loading map
-
+        self.root.title("Smart Courier Tkinter - Responsive 16 Direction Pathfinding")
+        
         self.main_frame = tk.Frame(root)
         self.main_frame.pack(fill='both', expand=True)
 
@@ -159,113 +155,173 @@ class App:
         self.speed_scale.set(5)
         self.speed_scale.pack(side=tk.LEFT, padx=5, pady=5)
 
+        # Add fit to window checkbox
+        self.fit_to_window = tk.BooleanVar(value=True)
+        self.fit_checkbox = tk.Checkbutton(self.controls_frame, text="Fit to Window", 
+                                         variable=self.fit_to_window, command=self.update)
+        self.fit_checkbox.pack(side=tk.LEFT, padx=5, pady=5)
+
         self.grid = []
+        self.grid_width = 0
+        self.grid_height = 0
         self.start = (0, 0)
         self.goal = (0, 0)
         self.courier = Courier(0, 0)
-        self.map_image = None
+        self.original_map_image = None
         self.map_photo = None
 
-        self.root.bind("<Configure>", lambda e: self.update())
+        # Bind resize event with a small delay to avoid too many updates
+        self.resize_after_id = None
+        self.root.bind("<Configure>", self.on_window_resize)
         self.root.minsize(500, 350)
 
         # Show initial message
         self.show_initial_message()
+
+    def on_window_resize(self, event):
+        # Only handle main window resize events
+        if event.widget == self.root:
+            # Cancel previous resize update if pending
+            if self.resize_after_id:
+                self.root.after_cancel(self.resize_after_id)
+            # Schedule update with small delay to avoid too many updates
+            self.resize_after_id = self.root.after(100, self.update)
+
+    def calculate_display_dimensions(self):
+        """Calculate the dimensions for displaying the map based on canvas size and settings"""
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
+        
+        if canvas_w <= 1 or canvas_h <= 1:  # Canvas not yet initialized
+            return None, None, None, None, None, None
+            
+        if not self.grid:
+            return None, None, None, None, None, None
+            
+        # Original map dimensions
+        original_map_w = self.grid_width * TILE_SIZE
+        original_map_h = self.grid_height * TILE_SIZE
+        
+        if self.fit_to_window.get():
+            # Calculate scale to fit the map in the canvas while maintaining aspect ratio
+            padding = 20  # Leave some padding
+            available_w = canvas_w - padding
+            available_h = canvas_h - padding
+            
+            scale_x = available_w / original_map_w
+            scale_y = available_h / original_map_h
+            scale = min(scale_x, scale_y, 1.0)  # Don't scale up beyond original size
+            
+            display_w = int(original_map_w * scale)
+            display_h = int(original_map_h * scale)
+        else:
+            # Use original size
+            scale = 1.0
+            display_w = original_map_w
+            display_h = original_map_h
+        
+        # Calculate offset to center the map
+        offset_x = max((canvas_w - display_w) // 2, 0)
+        offset_y = max((canvas_h - display_h) // 2, 0)
+        
+        return display_w, display_h, offset_x, offset_y, scale, scale
 
     def show_initial_message(self):
         self.canvas.delete("all")
         canvas_w = self.canvas.winfo_width()
         canvas_h = self.canvas.winfo_height()
         
-        text = "Please load a map to begin"
-        self.canvas.create_text(canvas_w//2, canvas_h//2, text=text, font=("Arial", 16), fill=BLACK)
+        if canvas_w > 1 and canvas_h > 1:  # Only show if canvas is initialized
+            text = "Please load a map to begin"
+            self.canvas.create_text(canvas_w//2, canvas_h//2, text=text, font=("Arial", 16), fill=BLACK)
 
     def set_speed(self, value):
         self.courier.speed = float(value) / 10
 
     def draw_grid(self):
         self.canvas.delete("all")
-        canvas_w = self.canvas.winfo_width()
-        canvas_h = self.canvas.winfo_height()
         
         if not self.grid:  # If no map loaded
             self.show_initial_message()
             return
             
+        # Get display dimensions
+        display_w, display_h, offset_x, offset_y, scale_x, scale_y = self.calculate_display_dimensions()
+        
+        if display_w is None:  # Canvas not ready
+            return
+            
+        # Resize and display the map image if available
+        if self.original_map_image and self.fit_to_window.get():
+            # Resize the image to fit the display dimensions
+            resized_image = self.original_map_image.resize((display_w, display_h), Image.Resampling.NEAREST)
+            self.map_photo = ImageTk.PhotoImage(resized_image)
+        elif self.original_map_image:
+            # Use original image size
+            self.map_photo = ImageTk.PhotoImage(self.original_map_image)
+        
         if self.map_photo:
             # Draw loaded map
-            self.canvas.create_image(
-                (canvas_w - self.map_photo.width()) // 2,
-                (canvas_h - self.map_photo.height()) // 2,
-                anchor=tk.NW, image=self.map_photo
-            )
+            self.canvas.create_image(offset_x, offset_y, anchor=tk.NW, image=self.map_photo)
         else:
             # Draw default grid
-            map_w = self.grid_width * TILE_SIZE
-            map_h = self.grid_height * TILE_SIZE
-            offset_x = max((canvas_w - map_w) // 2, 0)
-            offset_y = max((canvas_h - map_h) // 2, 0)
-
             # Draw walkable area as plain white background
             self.canvas.create_rectangle(
-                offset_x, 
-                offset_y,
-                offset_x + map_w,
-                offset_y + map_h,
+                offset_x, offset_y,
+                offset_x + display_w,
+                offset_y + display_h,
                 fill=WHITE, outline=WHITE
             )
 
-            # Draw obstacles as gray blocks without grid lines
+            # Draw obstacles as gray blocks
+            tile_w = display_w / self.grid_width
+            tile_h = display_h / self.grid_height
+            
             for y in range(self.grid_height):
                 for x in range(self.grid_width):
                     if self.grid[y][x] == 1:  # obstacle
-                        self.canvas.create_rectangle(
-                            offset_x + x*TILE_SIZE,
-                            offset_y + y*TILE_SIZE,
-                            offset_x + (x+1)*TILE_SIZE,
-                            offset_y + (y+1)*TILE_SIZE,
-                            fill=GRAY, outline=GRAY
-                        )
+                        x1 = offset_x + x * tile_w
+                        y1 = offset_y + y * tile_h
+                        x2 = offset_x + (x + 1) * tile_w
+                        y2 = offset_y + (y + 1) * tile_h
+                        self.canvas.create_rectangle(x1, y1, x2, y2, fill=GRAY, outline=GRAY)
 
         # Draw start, goal, and courier
-        canvas_w = self.canvas.winfo_width()
-        canvas_h = self.canvas.winfo_height()
+        tile_w = display_w / self.grid_width
+        tile_h = display_h / self.grid_height
         
-        if self.map_photo:
-            offset_x = (canvas_w - self.map_photo.width()) // 2
-            offset_y = (canvas_h - self.map_photo.height()) // 2
-            scale_x = self.map_photo.width() / (self.grid_width * TILE_SIZE)
-            scale_y = self.map_photo.height() / (self.grid_height * TILE_SIZE)
-        else:
-            map_w = self.grid_width * TILE_SIZE
-            map_h = self.grid_height * TILE_SIZE
-            offset_x = max((canvas_w - map_w) // 2, 0)
-            offset_y = max((canvas_h - map_h) // 2, 0)
-            scale_x = scale_y = 1
-
-        # Start
+        # Start position
         sx, sy = self.start
-        cx = offset_x + sx*TILE_SIZE*scale_x + TILE_SIZE*scale_x//2
-        cy = offset_y + sy*TILE_SIZE*scale_y + TILE_SIZE*scale_y//2
-        self.canvas.create_line(cx, cy - 10*scale_y, cx, cy + 10*scale_y, fill=BLACK, width=3)
-        self.canvas.create_polygon([(cx, cy), (cx, cy - 10*scale_y), (cx + 10*scale_x, cy)], fill=YELLOW, outline=BLACK)
+        cx = offset_x + sx * tile_w + tile_w // 2
+        cy = offset_y + sy * tile_h + tile_h // 2
+        flag_size = min(tile_w, tile_h) // 2
+        self.canvas.create_line(cx, cy - flag_size, cx, cy + flag_size, fill=BLACK, width=2)
+        self.canvas.create_polygon([
+            (cx, cy), 
+            (cx, cy - flag_size), 
+            (cx + flag_size, cy - flag_size//2)
+        ], fill=YELLOW, outline=BLACK)
 
-        # Goal
+        # Goal position
         gx, gy = self.goal
-        cx = offset_x + gx*TILE_SIZE*scale_x + TILE_SIZE*scale_x//2
-        cy = offset_y + gy*TILE_SIZE*scale_y + TILE_SIZE*scale_y//2
-        self.canvas.create_line(cx, cy - 10*scale_y, cx, cy + 10*scale_y, fill=BLACK, width=3)
-        self.canvas.create_polygon([(cx, cy), (cx, cy - 10*scale_y), (cx + 10*scale_x, cy)], fill=RED, outline=BLACK)
+        cx = offset_x + gx * tile_w + tile_w // 2
+        cy = offset_y + gy * tile_h + tile_h // 2
+        self.canvas.create_line(cx, cy - flag_size, cx, cy + flag_size, fill=BLACK, width=2)
+        self.canvas.create_polygon([
+            (cx, cy), 
+            (cx, cy - flag_size), 
+            (cx + flag_size, cy - flag_size//2)
+        ], fill=RED, outline=BLACK)
 
         # Courier
-        cx = offset_x + self.courier.current_pos[0]*TILE_SIZE*scale_x + TILE_SIZE*scale_x//2
-        cy = offset_y + self.courier.current_pos[1]*TILE_SIZE*scale_y + TILE_SIZE*scale_y//2
-        length = TILE_SIZE * max(scale_x, scale_y) // 2
+        cx = offset_x + self.courier.current_pos[0] * tile_w + tile_w // 2
+        cy = offset_y + self.courier.current_pos[1] * tile_h + tile_h // 2
+        courier_size = min(tile_w, tile_h) // 2
         angle = self.courier.angle
         points = [
-            (cx + length * math.cos(angle), cy - length * math.sin(angle)),
-            (cx + length * math.cos(angle + 2.3), cy - length * math.sin(angle + 2.3)),
-            (cx + length * math.cos(angle - 2.3), cy - length * math.sin(angle - 2.3)),
+            (cx + courier_size * math.cos(angle), cy - courier_size * math.sin(angle)),
+            (cx + courier_size * math.cos(angle + 2.3), cy - courier_size * math.sin(angle + 2.3)),
+            (cx + courier_size * math.cos(angle - 2.3), cy - courier_size * math.sin(angle - 2.3)),
         ]
         self.canvas.create_polygon(points, fill=GREEN, outline=BLACK)
 
@@ -274,28 +330,30 @@ class App:
             path_points = []
             for point in [self.courier.current_pos] + self.courier.path[self.courier.target_index:]:
                 px, py = point
-                cx = offset_x + px*TILE_SIZE*scale_x + TILE_SIZE*scale_x//2
-                cy = offset_y + py*TILE_SIZE*scale_y + TILE_SIZE*scale_y//2
-                path_points.append((cx, cy))
+                path_x = offset_x + px * tile_w + tile_w // 2
+                path_y = offset_y + py * tile_h + tile_h // 2
+                path_points.append((path_x, path_y))
             
             if len(path_points) > 1:
                 self.canvas.create_line(path_points, fill=GREEN, width=2, dash=(4, 2))
 
         # Legend
-        if self.grid:  # Only show legend if map is loaded
-            legend_text = f"Map size: {self.grid_width * TILE_SIZE} px x {self.grid_height * TILE_SIZE} px | 16-direction pathfinding"
-            padding = 4
-            font = ("Arial", 10, "bold")
-            text_id = self.canvas.create_text(padding, padding, anchor="nw", text=legend_text, font=font)
-            bbox = self.canvas.bbox(text_id)
-            if bbox:
-                x1, y1, x2, y2 = bbox
-                self.canvas.create_rectangle(
-                    x1 - padding, y1 - padding,
-                    x2 + padding, y2 + padding,
-                    fill="white", outline="black", stipple="gray50"
-                )
-                self.canvas.lift(text_id)
+        canvas_w = self.canvas.winfo_width()
+        legend_text = f"Map: {self.grid_width}x{self.grid_height} | Display: {display_w}x{display_h} | Scale: {scale_x:.2f}"
+        padding = 8
+        font = ("Arial", 10, "bold")
+        
+        # Create background for legend
+        text_id = self.canvas.create_text(padding, padding, anchor="nw", text=legend_text, font=font, fill=BLACK)
+        bbox = self.canvas.bbox(text_id)
+        if bbox:
+            x1, y1, x2, y2 = bbox
+            self.canvas.create_rectangle(
+                x1 - padding//2, y1 - padding//2,
+                x2 + padding//2, y2 + padding//2,
+                fill="white", outline="black", width=1
+            )
+            self.canvas.lift(text_id)
 
     def update(self):
         self.draw_grid()
@@ -316,7 +374,8 @@ class App:
         if not self.grid:
             return
             
-        self.courier.path = a_star(self.grid, (int(self.courier.current_pos[0]), int(self.courier.current_pos[1])), self.goal)
+        current_pos = (int(self.courier.current_pos[0]), int(self.courier.current_pos[1]))
+        self.courier.path = a_star(self.grid, current_pos, self.goal)
         if self.courier.path:
             self.courier.moving = True
             self.courier.target_index = 0
@@ -334,14 +393,14 @@ class App:
 
     def load_map(self):
         try:
-            filepath = filedialog.askopenfilename(filetypes=[("Image Files", "*.png;*.jpg;*.jpeg")])
+            filepath = filedialog.askopenfilename(
+                filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp *.gif")]
+            )
             if filepath:
+                # Load and store original image
                 img = Image.open(filepath).convert('RGB')
+                self.original_map_image = img
                 w, h = img.size
-                
-                # Save original image for display
-                self.map_image = img
-                self.map_photo = ImageTk.PhotoImage(self.map_image)
                 
                 # Calculate grid size based on image dimensions
                 self.grid_width = w // TILE_SIZE
@@ -353,13 +412,11 @@ class App:
                     row = []
                     for x in range(self.grid_width):
                         # Get pixel color at tile center
-                        pixel_x = x * TILE_SIZE + TILE_SIZE // 2
-                        pixel_y = y * TILE_SIZE + TILE_SIZE // 2
-                        pixel_x = min(pixel_x, w-1)
-                        pixel_y = min(pixel_y, h-1)
-                        r, g, b = self.map_image.getpixel((pixel_x, pixel_y))
+                        pixel_x = min(x * TILE_SIZE + TILE_SIZE // 2, w - 1)
+                        pixel_y = min(y * TILE_SIZE + TILE_SIZE // 2, h - 1)
+                        r, g, b = img.getpixel((pixel_x, pixel_y))
                         
-                        # Check if in gray range (90-150)
+                        # Check if in gray range (90-150) - walkable
                         if 90 <= r <= 150 and 90 <= g <= 150 and 90 <= b <= 150:
                             row.append(0)  # Walkable
                         else:
@@ -378,8 +435,9 @@ class App:
                 self.speed_scale.config(state=tk.NORMAL)
                 
                 self.update()
+                
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error", f"Failed to load map: {str(e)}")
 
 
 if __name__ == "__main__":
